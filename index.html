@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>RNDT - Painel Operacional de Integração</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #010403; color: #a7f3d0; font-family: 'Courier New', Courier, monospace; overflow: hidden; }
+        
+        /* Container para efeito 3D */
+        #viz-wrapper { width: 100%; height: 100%; perspective: 2500px; background: radial-gradient(circle at center, #011812 0%, #010403 100%); transition: all 0.5s ease;}
+        
+        /* Painéis Flutuantes HUD */
+        .hud-panel { position: absolute; background: rgba(2, 18, 13, 0.90); padding: 18px; border-radius: 8px; border: 1px solid #10b981; z-index: 10; box-shadow: 0 0 30px rgba(16, 185, 129, 0.2); backdrop-filter: blur(12px); transition: all 0.3s ease;}
+        #ui-panel { top: 20px; left: 20px; width: 330px; }
+        #route-panel { top: 20px; right: 20px; width: 360px; display: none; }
+        
+        /* Cabeçalho Recolhível */
+        .panel-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; border-bottom: 1px solid #059669; padding-bottom: 8px; margin-bottom: 12px; }
+        .panel-header h2 { margin: 0; font-size: 1.05rem; color: #34d399; text-transform: uppercase; letter-spacing: 1px; }
+        .panel-header span { color: #10b981; font-weight: bold; transition: transform 0.3s ease; }
+        .panel-header:hover span { color: #6ee7b7; }
+        
+        .panel-content { display: block; max-height: 80vh; overflow-y: auto; padding-right: 5px; opacity: 1; transition: opacity 0.3s ease;}
+        .panel-content.hidden { display: none; opacity: 0; }
+        
+        .control-group { margin-bottom: 10px; }
+        .control-group label { display: block; margin-bottom: 3px; font-size: 0.7rem; color: #6ee7b7; font-weight: bold; text-transform: uppercase; }
+        .control-group select, .control-group input { width: 100%; padding: 7px; border: 1px solid #059669; background: rgba(1, 24, 18, 0.8); color: #34d399; cursor: pointer; font-family: inherit; font-size: 0.8rem; outline: none; border-radius: 4px; box-sizing: border-box;}
+        
+        /* Ajuste do Autocomplete (Input com Datalist) */
+        input::-webkit-calendar-picker-indicator { opacity: 0.6; filter: invert(0.8) sepia(1) hue-rotate(90deg); cursor: pointer; }
+        input::placeholder { color: #064e3b; font-style: italic; }
+        
+        /* PTZ Controls */
+        #ptz-controls { position: absolute; bottom: 25px; left: 25px; z-index: 10; display: grid; grid-template-columns: repeat(3, 40px); grid-template-rows: repeat(3, 40px); gap: 5px; }
+        .btn-ptz { width: 40px; height: 40px; background: rgba(3, 27, 20, 0.85); border: 1px solid #10b981; color: #34d399; cursor: pointer; border-radius: 6px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: all 0.2s; backdrop-filter: blur(5px);}
+        .btn-ptz:hover { background: #10b981; color: #011812; box-shadow: 0 0 15px #10b981;}
+        .ptz-up { grid-column: 2; grid-row: 1; }
+        .ptz-left { grid-column: 1; grid-row: 2; }
+        .ptz-center { grid-column: 2; grid-row: 2; font-size: 0.65rem; }
+        .ptz-right { grid-column: 3; grid-row: 2; }
+        .ptz-down { grid-column: 2; grid-row: 3; }
+        .ptz-in { grid-column: 1; grid-row: 1; }
+        .ptz-out { grid-column: 3; grid-row: 1; }
+
+        .toggle-wrapper { display: flex; align-items: center; justify-content: space-between; background: rgba(5, 150, 105, 0.15); padding: 10px; border-radius: 4px; border: 1px dashed #059669; margin-top: 10px; font-size: 0.75rem;}
+        .toggle-wrapper label { margin: 0; cursor: pointer; font-weight: bold; color: #fcd34d;}
+        
+        button { width: 100%; padding: 10px; background-color: #059669; color: #fff; border: 1px solid #34d399; cursor: pointer; font-weight: bold; text-transform: uppercase; transition: all 0.2s; letter-spacing: 1px; margin-top: 8px; border-radius: 4px; font-size: 0.8rem;}
+        button:hover { background-color: #10b981; box-shadow: 0 0 15px rgba(16, 185, 129, 0.6); }
+        button.btn-report { background-color: #0284c7; border-color: #38bdf8; margin-top: 15px; }
+        button.btn-report:hover { background-color: #0ea5e9; box-shadow: 0 0 15px rgba(14, 165, 233, 0.6); }
+        button.btn-demo { background-color: #8b5cf6; border-color: #a78bfa; margin-top: 15px;}
+        button.btn-demo:hover { background-color: #a855f7; box-shadow: 0 0 15px rgba(168, 85, 247, 0.6); }
+        button.reset-btn { background-color: #0f172a; border-color: #475569; color: #94a3b8; margin-top: 8px;}
+        button.reset-btn:hover { background-color: #1e293b; color: #cbd5e1; }
+
+        .media-controls { display: flex; gap: 8px; margin-top: 15px; }
+        .btn-play { background-color: #d97706; border-color: #fbbf24; flex: 1;}
+        .btn-play:hover { background-color: #f59e0b; box-shadow: 0 0 15px rgba(245, 158, 11, 0.6); }
+        .btn-next { background-color: #4f46e5; border-color: #818cf8; flex: 1;}
+        .btn-next:hover { background-color: #6366f1; box-shadow: 0 0 15px rgba(99, 102, 241, 0.6); }
+        .btn-stop { background-color: #9f1239; border-color: #f43f5e; flex: 1;}
+        .btn-stop:hover { background-color: #be123c; box-shadow: 0 0 15px rgba(244, 63, 94, 0.6); }
+
+        /* Árvore de Roteamento */
+        .tree-header-box { background: rgba(5, 150, 105, 0.15); padding: 12px; border-radius: 6px; border-left: 4px solid #10b981; margin-bottom: 15px;}
+        .tree-header-box .label-origem { color:#a7f3d0; font-size: 0.75rem; font-weight: bold; margin-bottom:4px; }
+        .tree-header-box .tree-org { font-size: 1.05rem; color: #fcd34d; font-weight: bold; text-transform: uppercase; }
+        .tree-header-box .tree-sys { font-size: 0.85rem; color: #34d399; margin-top: 4px;}
+
+        .tree-group { margin-bottom: 15px; background: rgba(0,0,0,0.3); padding: 12px; border-radius: 6px; border: 1px solid rgba(52, 211, 153, 0.2);}
+        .tree-group-title { font-size: 0.95rem; color: #fcd34d; font-weight: bold; text-transform: uppercase; border-bottom: 1px solid #334155; padding-bottom: 6px; margin-bottom: 10px; }
+        
+        .route-tree-item { margin-left: 10px; border-left: 2px dashed #064e3b; padding-left: 14px; padding-top: 8px; padding-bottom: 8px; transition: all 0.2s; position: relative; cursor: pointer; border-radius: 0 4px 4px 0; }
+        .route-tree-item::before { content: '↳'; position: absolute; left: 0px; color: #059669; font-weight: bold; }
+        .route-tree-item:hover { background: rgba(245, 158, 11, 0.1); }
+        .route-tree-item .tree-sys { font-size: 0.85rem; color: #94a3b8; font-weight: bold;}
+        .route-tree-item .tree-dim { font-size: 0.7rem; color: #10b981; display: block; margin-top: 3px; font-style: italic;}
+        
+        .route-tree-item.active { background: rgba(245, 158, 11, 0.2); border-left: 3px solid #f59e0b; }
+        .route-tree-item.active::before { color: #f59e0b; left: -2px; }
+        .route-tree-item.active .tree-sys { color: #fde68a; }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #059669; border-radius: 3px; }
+
+        #tooltip { position: absolute; background: rgba(1, 12, 8, 0.98); color: #6ee7b7; padding: 18px; border: 1px solid #10b981; pointer-events: none; opacity: 0; z-index: 20; max-width: 400px; font-size: 0.85rem; box-shadow: 8px 8px 0px rgba(16,185,129,0.2); border-radius: 6px; backdrop-filter: blur(10px);}
+        #tooltip h3 { margin: 0 0 10px 0; color: #f8fafc; font-size: 1.1rem; border-bottom: 1px dashed #059669; padding-bottom: 6px; }
+        #tooltip p { margin: 5px 0; line-height: 1.4;}
+
+        /* PCB & Efeitos 3D Volumétricos */
+        svg { width: 100%; height: 100%; cursor: grab; transition: transform 1s cubic-bezier(0.25, 1, 0.5, 1); transform-style: preserve-3d; }
+        svg:active { cursor: grabbing; }
+        
+        /* Classe ativada pelo Toggle 3D */
+        .is-3d svg { transform: rotateX(55deg) rotateZ(-35deg) scale(1.3); filter: drop-shadow(0px 50px 50px rgba(0,0,0,0.8)); }
+        
+        /* Volume e Sombras da CPU */
+        .cpu-depth { fill: #000402; filter: drop-shadow(15px 25px 0px rgba(1, 12, 8, 0.95)) drop-shadow(20px 30px 30px rgba(0,0,0,0.8)); transition: all 0.5s ease; }
+        .cpu-socket { fill: #022c22; stroke: #059669; stroke-width: 3px; transition: all 0.5s ease; }
+        .cpu-core { fill: #064e3b; stroke: #10b981; stroke-width: 1px; stroke-dasharray: 2 4; transition: fill 0.2s ease; }
+        
+        /* Iluminação sutil da CPU */
+        .rndt-glow { filter: drop-shadow(0 0 20px rgba(16, 185, 129, 0.7)) brightness(1.2) !important; stroke: #10b981 !important; stroke-width: 4px !important; }
+
+        /* Volume e Sombras dos Chips (Dominó Effect) */
+        .chip-depth { fill: #000c08; transition: all 0.5s ease; }
+        .is-3d .chip-depth { filter: drop-shadow(8px 12px 0px rgba(1, 12, 8, 0.9)) drop-shadow(15px 20px 25px rgba(0,0,0,0.7)); }
+        .chip-base { fill: #01120d; transition: all 0.3s ease; }
+        .chip-body { stroke-width: 2.5px; transition: all 0.3s; cursor: pointer; }
+        
+        .chip-body:hover { filter: brightness(1.4); stroke: #fcd34d; }
+        
+        .pin-pad { stroke-width: 1.5px; cursor: pointer; transition: all 0.2s; rx: 1px; }
+        .is-3d .pin-pad { filter: drop-shadow(3px 4px 0px rgba(1, 12, 8, 0.8)); }
+        .pin-pad:hover { fill: #fcd34d !important; stroke: #f59e0b !important; filter: drop-shadow(0 0 10px #fbbf24) !important; }
+        .pin-text { font-size: 11px; pointer-events: none; font-weight: bold; }
+        
+        .silkscreen-text { pointer-events: none; font-family: 'Courier New', Courier, monospace; font-weight: bold; }
+        
+        /* Conexões e Luzes */
+        .pcb-trace { fill: none; stroke-linejoin: bevel; stroke-linecap: square; }
+        .trace-cold { stroke: #064e3b; stroke-width: 1.5px; opacity: 0.3; } 
+        .trace-hot { stroke: #fcd34d; stroke-width: 5px; filter: drop-shadow(0 0 15px #f59e0b); } 
+        .trace-settled { stroke: #d97706; stroke-width: 3px; opacity: 0.7; }
+    </style>
+</head>
+<body>
+
+    <div id="viz-wrapper">
+        <svg id="viz">
+            <defs><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#031a12" stroke-width="1"/></pattern></defs>
+            <rect width="100%" height="100%" fill="url(#grid)" />
+        </svg>
+    </div>
+
+    <div id="ptz-controls">
+        <button class="btn-ptz ptz-in" onclick="zoomAction(1.3)" title="Zoom In">+</button>
+        <button class="btn-ptz ptz-up" onclick="pan(0, 200)" title="Mover Cima">▲</button>
+        <button class="btn-ptz ptz-out" onclick="zoomAction(0.7)" title="Zoom Out">-</button>
+        <button class="btn-ptz ptz-left" onclick="pan(200, 0)" title="Mover Esquerda">◄</button>
+        <button class="btn-ptz ptz-center" onclick="centerCamera()" title="Centralizar">◉</button>
+        <button class="btn-ptz ptz-right" onclick="pan(-200, 0)" title="Mover Direita">►</button>
+        <button class="btn-ptz ptz-down" onclick="pan(0, -200)" title="Mover Baixo">▼</button>
+    </div>
+
+    <div id="ui-panel" class="hud-panel">
+        <div class="panel-header" onclick="togglePanel('ui-panel-content', 'ui-panel-icon')">
+            <h2>RNDT // Painel Central</h2>
+            <span id="ui-panel-icon">▼</span>
+        </div>
+        
+        <div id="ui-panel-content" class="panel-content">
+            <div class="control-group">
+                <label>1. Conectar Database (.csv)</label>
+                <input type="file" id="file-upload" accept=".csv">
+            </div>
+            
+            <div class="control-group" style="margin-top: 15px;">
+                <label>Foco Órgão (Isolar Domínio)</label>
+                <input type="text" id="filter-orgao" list="orgaos-list" placeholder="🔎 Digite ou selecione um Órgão..." autocomplete="off">
+                <datalist id="orgaos-list"></datalist>
+            </div>
+            
+            <div class="control-group" style="margin-top: 15px;">
+                <label>Direção do Roteamento (Lógica)</label>
+                <select id="route-direction" style="background:#064e3b; color:#a7f3d0;">
+                    <option value="ALL" selected>QUALQUER (Entradas e Saídas)</option>
+                    <option value="OUT">SAÍDAS (Para onde envia)</option>
+                    <option value="IN">ENTRADAS (Quem alimenta)</option>
+                </select>
+            </div>
+
+            <div class="toggle-wrapper" style="background: rgba(139, 92, 246, 0.15); border-color: #8b5cf6;">
+                <label for="toggle-3d" style="color: #c4b5fd;">VISÃO 3D (ISOMÉTRICA)</label>
+                <input type="checkbox" id="toggle-3d" style="width: auto; transform: scale(1.2);">
+            </div>
+
+            <div class="toggle-wrapper">
+                <label for="toggle-cinematic">CÂMERA CINEMÁTICA</label>
+                <input type="checkbox" id="toggle-cinematic" style="width: auto; transform: scale(1.2);">
+            </div>
+
+            <button id="btn-demo" class="btn-demo">🎲 MODO DEMO AUTOMÁTICO</button>
+            <button id="btn-report" class="btn-report" onclick="gerarRelatorioHtml()">📄 OBTER RELATÓRIO POTENCIAL DO ÓRGÃO</button>
+            <button id="btn-reset" class="reset-btn">Visão Global / Restaurar Circuito</button>
+        </div>
+    </div>
+
+    <div id="route-panel" class="hud-panel">
+        <div class="panel-header" onclick="togglePanel('route-panel-content', 'route-panel-icon')">
+            <h2>Roteamento Ativo</h2>
+            <span id="route-panel-icon">▼</span>
+        </div>
+        
+        <div id="route-panel-content" class="panel-content hidden">
+            <div id="route-header"></div>
+            <div id="route-tree-container"></div>
+            <div class="media-controls">
+                <button id="btn-play" class="btn-play">▶ PLAY</button>
+                <button id="btn-next" class="btn-next">⏭ AVANÇAR</button>
+                <button id="btn-stop" class="btn-stop">■ STOP</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="tooltip"></div>
+
+    <script>
+        // --- VARIÁVEIS GLOBAIS DE ESTADO ---
+        window.isDemoModeActive = false;
+        window.demoTimeouts = [];
+
+        // --- UI TOGGLE UNIVERSAL ---
+        function togglePanel(contentId, iconId) {
+            let content = document.getElementById(contentId);
+            let icon = document.getElementById(iconId);
+            if(content.classList.contains('hidden')) {
+                content.classList.remove('hidden'); icon.innerText = "▼";
+            } else {
+                content.classList.add('hidden'); icon.innerText = "▲";
+            }
+        }
+
+        // --- TOGGLE 3D ---
+        document.getElementById("toggle-3d").addEventListener("change", function(e) {
+            if(e.target.checked) document.getElementById("viz-wrapper").classList.add("is-3d");
+            else document.getElementById("viz-wrapper").classList.remove("is-3d");
+        });
+
+        // --- ÁUDIO (Auto-Unlocker Invisível) ---
+        let audioCtx;
+        let audioInitialized = false;
+        
+        function initAudio() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        }
+
+        document.body.addEventListener('pointerdown', () => {
+            if (!audioInitialized) { initAudio(); audioInitialized = true; }
+        }, { once: true });
+
+        function playBeep(freq, type, duration, vol=0.08) {
+            if (!audioCtx || !audioInitialized) return;
+            const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+            osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(vol, audioCtx.currentTime + 0.05); 
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration); 
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(); osc.stop(audioCtx.currentTime + duration);
+        }
+        function playChord(freqs, duration, vol=0.05) { freqs.forEach(f => playBeep(f, 'sine', duration, vol)); }
+
+        // --- D3 E PTZ ---
+        const width = window.innerWidth; const height = window.innerHeight;
+        const svg = d3.select("#viz");
+        const tooltip = d3.select("#tooltip"); 
+        
+        const zoomLayer = svg.append("g").attr("class", "zoom-layer");
+        const gTraces = zoomLayer.append("g"); const gActiveTraces = zoomLayer.append("g");
+        const gChips = zoomLayer.append("g"); const gPins = zoomLayer.append("g"); const gCenter = zoomLayer.append("g");
+
+        const zoom = d3.zoom().scaleExtent([0.1, 4]).on("zoom", (e) => zoomLayer.attr("transform", e.transform));
+        svg.call(zoom);
+
+        function pan(dx, dy) { svg.transition().duration(300).call(zoom.translateBy, dx / zoom.scale(), dy / zoom.scale()); }
+        function zoomAction(scaleFactor) { svg.transition().duration(300).call(zoom.scaleBy, scaleFactor); }
+        
+        function centerCamera() { 
+            svg.transition().duration(1000).call(zoom.transform, d3.zoomIdentity.translate(width/2 - boardCenter.x*0.7, height/2 - boardCenter.y*0.7).scale(0.7)); 
+        }
+
+        function frameNodes(nodesToFrame, duration=1200, callback=null) {
+            if(!nodesToFrame || nodesToFrame.length === 0) { centerCamera(); return; }
+            
+            let minX = d3.min(nodesToFrame, n => n.x) - 100;
+            let maxX = d3.max(nodesToFrame, n => n.x) + 100;
+            let minY = d3.min(nodesToFrame, n => n.y) - 100;
+            let maxY = d3.max(nodesToFrame, n => n.y) + 100;
+            
+            minX = Math.min(minX, boardCenter.x - cpuSize/2 - 50);
+            maxX = Math.max(maxX, boardCenter.x + cpuSize/2 + 50);
+            minY = Math.min(minY, boardCenter.y - cpuSize/2 - 50);
+            maxY = Math.max(maxY, boardCenter.y + cpuSize/2 + 50);
+
+            let cx = (minX + maxX) / 2;
+            let cy = (minY + maxY) / 2;
+            let dx = maxX - minX;
+            let dy = maxY - minY;
+            
+            let fitScale = Math.max(0.4, Math.min(2.0, Math.min(width/dx, height/dy) * 0.95));
+            
+            svg.transition("cam").duration(duration).ease(d3.easeCubicOut)
+               .call(zoom.transform, d3.zoomIdentity.translate(width/2 - cx*fitScale, height/2 - cy*fitScale).scale(fitScale))
+               .on("end", () => {
+                   if (callback) callback();
+               });
+        }
+
+        let rawData = []; 
+        let fullGraphData = { nodes: [], links: [], parentMap: new Map() };
+        let parentMetaMap = new Map(); 
+        
+        const boardCenter = { x: 3000, y: 3000 }; const cpuSize = 400;
+
+        // DESENHO CPU (COM VOLUME 3D)
+        gCenter.append("rect").attr("x", boardCenter.x - cpuSize/2 + 10).attr("y", boardCenter.y - cpuSize/2 + 12).attr("width", cpuSize).attr("height", cpuSize).attr("rx", 10).attr("class", "cpu-depth");
+        gCenter.append("rect").attr("x", boardCenter.x - cpuSize/2).attr("y", boardCenter.y - cpuSize/2).attr("width", cpuSize).attr("height", cpuSize).attr("rx", 10).attr("class", "cpu-socket rndt-cpu");
+        gCenter.append("rect").attr("x", boardCenter.x - (cpuSize/2 - 35)).attr("y", boardCenter.y - (cpuSize/2 - 35)).attr("width", cpuSize - 70).attr("height", cpuSize - 70).attr("class", "cpu-core");
+        gCenter.append("text").attr("x", boardCenter.x).attr("y", boardCenter.y - 15).attr("text-anchor", "middle").attr("dy", "-0.1em").attr("class", "silkscreen-text").style("font-size", "52px").style("fill", "#10b981").text("RNDT_CORE");
+        gCenter.append("text").attr("x", boardCenter.x).attr("y", boardCenter.y + 55).attr("text-anchor", "middle").attr("class", "engraved-text").style("font-size", "20px").text("REDE NACIONAL DE DADOS");
+        gCenter.append("text").attr("x", boardCenter.x).attr("y", boardCenter.y + 85).attr("text-anchor", "middle").attr("class", "engraved-text").style("font-size", "20px").text("DE TRANSPORTE");
+
+        function safeId(str) { return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, "_").toUpperCase(); }
+        function getThemeByEsfera(esferaStr) {
+            let s = (esferaStr || "").toLowerCase();
+            if (s.includes("federal")) return { fill: "rgba(2, 132, 199, 0.3)", stroke: "#0284c7", text: "#38bdf8", pin: "#bae6fd" }; 
+            if (s.includes("privado") || s.includes("sociedade")) return { fill: "rgba(147, 51, 234, 0.3)", stroke: "#9333ea", text: "#c084fc", pin: "#e9d5ff" }; 
+            if (s.includes("estadual") || s.includes("municipal")) return { fill: "rgba(234, 88, 12, 0.3)", stroke: "#ea580c", text: "#fb923c", pin: "#fed7aa" }; 
+            return { fill: "rgba(15, 23, 42, 0.6)", stroke: "#475569", text: "#94a3b8", pin: "#cbd5e1" }; 
+        }
+
+        document.getElementById("file-upload").addEventListener("change", function(e) {
+            Papa.parse(e.target.files[0], { header: true, skipEmptyLines: true, delimiter: ";", complete: function(results) {
+                if(results.data.length > 0) {
+                    rawData = results.data;
+                    let kResp = Object.keys(rawData[0]).find(k => k.includes("Responsável")) || "Responsável";
+                    const orgaosGlobais = [...new Set(rawData.map(d => d[kResp]).filter(Boolean))].sort((a,b) => a.localeCompare(b));
+                    parentMetaMap.clear();
+                    
+                    const datalist = document.getElementById("orgaos-list");
+                    datalist.innerHTML = "";
+                    orgaosGlobais.forEach((org, idx) => { 
+                        parentMetaMap.set(safeId(org), { col: idx % 2, order: Math.floor(idx / 2) }); 
+                        let option = document.createElement("option"); option.value = org; datalist.appendChild(option);
+                    });
+                    
+                    processData();
+                    setTimeout(centerCamera, 500); 
+                }
+            }});
+        });
+
+        document.getElementById("filter-orgao").addEventListener("change", updateVisualization);
+        document.getElementById("route-direction").addEventListener("change", updateVisualization);
+        
+        document.getElementById("btn-reset").addEventListener("click", () => {
+            stopDemo(); stopAnimation(); 
+            document.getElementById("filter-orgao").value = "";
+            document.getElementById("route-panel").style.display = "none";
+            gActiveTraces.selectAll("*").remove();
+            updateVisualization(); 
+        });
+
+        // --- RELATÓRIO OFICIAL PROFISSIONAL ---
+        function gerarRelatorioHtml() {
+            let inputVal = document.getElementById("filter-orgao").value.trim();
+            if (inputVal === "" || inputVal.toUpperCase() === "ALL") { 
+                alert("Por favor, digite ou selecione um Órgão específico na caixa de busca para extrair o relatório potencial."); return; 
+            }
+            const orgao = inputVal;
+
+            let h = Object.keys(rawData[0]);
+            let kSys = h.find(k => k.includes("Documento")) || "Documento/Sistema"; let kResp = h.find(k => k.includes("Responsável")) || "Responsável";
+            let kDim = h.find(k => k.includes("Dimensão")) || "Dimensão"; let kEsf = h.find(k => k.includes("Esfera")) || "Esfera";
+            let kDesc = h.find(k => k.includes("Descrição")) || "Descrição"; let kIn = h.find(k => k.includes("Entrada")) || "Entrada de Dados";
+            let kOut = h.find(k => k.includes("Saída")) || "Saída de Dados"; let kRel = h.find(k => k.includes("Relação")) || "Relação com Rede Nacional de Dados de Transporte";
+
+            let dadosOrgao = rawData.filter(d => d[kResp] === orgao);
+            if(dadosOrgao.length === 0) { alert("Órgão não encontrado no mapeamento."); return; }
+            
+            let dadosPorDominio = d3.group(dadosOrgao, d => d[kDim]);
+
+            let htmlStr = `
+            <!DOCTYPE html>
+            <html lang="pt-BR">
+            <head>
+                <meta charset="UTF-8">
+                <title>Relatório RNDT - ${orgao}</title>
+                <style>
+                    @page { size: A4; margin: 20mm; }
+                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #1e293b; margin: 0; padding: 20px; background-color: #f1f5f9; }
+                    .page-container { background: #ffffff; max-width: 900px; margin: 0 auto; padding: 40px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border-top: 6px solid #059669; }
+                    .header { text-align: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 25px; margin-bottom: 30px; }
+                    .logo-mt { font-size: 1.6rem; font-weight: 800; color: #0f172a; text-transform: uppercase; letter-spacing: 1px;}
+                    .rndt-title { font-size: 1.1rem; color: #059669; margin-top: 8px; font-weight: 600; text-transform: uppercase;}
+                    h1 { color: #0f172a; margin-top: 25px; margin-bottom: 5px; font-size: 1.8rem;}
+                    h2.domain-title { color: #0284c7; border-bottom: 2px solid #bae6fd; padding-bottom: 5px; margin-top: 40px; font-size: 1.4rem; }
+                    .sys-card { background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); page-break-inside: avoid;}
+                    .sys-header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #f1f5f9; padding-bottom: 12px; margin-bottom: 15px; }
+                    .sys-name { font-size: 1.25rem; font-weight: bold; color: #0f172a; margin: 0; }
+                    .sys-esfera { font-size: 0.75rem; background: #e2e8f0; padding: 4px 10px; border-radius: 20px; font-weight: bold; color: #475569; text-transform: uppercase;}
+                    .label { font-weight: bold; color: #64748b; font-size: 0.85rem; margin-top: 10px; display: block; text-transform: uppercase;}
+                    .content { font-size: 0.95rem; color: #334155; margin-top: 4px; line-height: 1.6;}
+                    .highlight-rndt { background: #f0fdf4; border-left: 4px solid #10b981; padding: 15px; margin-top: 20px; border-radius: 0 4px 4px 0;}
+                    .data-flow { display: flex; gap: 20px; margin-top: 20px; background: #f8fafc; padding: 15px; border-radius: 6px; border: 1px dashed #cbd5e1;}
+                    .flow-col { flex: 1; }
+                    .footer-disclaimer { margin-top: 50px; padding-top: 20px; border-top: 1px solid #cbd5e1; font-size: 0.85rem; color: #64748b; text-align: center; line-height: 1.5; }
+                    .footer-disclaimer strong { color: #b91c1c; }
+                </style>
+            </head>
+            <body>
+                <div class="page-container">
+                    <div class="header">
+                        <div class="logo-mt">Ministério dos Transportes</div>
+                        <div class="rndt-title">INOVALAB - Rede Nacional de Dados de Transporte</div>
+                        <h1>Relatório Potencial de Sistemas e Integrações</h1>
+                        <div style="font-size: 1.2rem; color: #475569; margin-top: 10px;">Órgão Responsável: <strong style="color:#0f172a;">${orgao}</strong></div>
+                        <div style="font-size: 0.9rem; color: #94a3b8; margin-top: 10px;">Documento gerado em: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}</div>
+                    </div>
+            `;
+
+            for (let [dominio, sistemas] of dadosPorDominio) {
+                htmlStr += `<h2 class="domain-title">Domínio: ${dominio}</h2>`;
+                sistemas.forEach(sys => {
+                    htmlStr += `
+                    <div class="sys-card">
+                        <div class="sys-header">
+                            <h3 class="sys-name">${sys[kSys]}</h3>
+                            <span class="sys-esfera">${sys[kEsf] || 'Esfera Não Informada'}</span>
+                        </div>
+                        <span class="label">Descrição Funcional</span>
+                        <div class="content">${sys[kDesc] || 'Sem descrição mapeada.'}</div>
+                        
+                        <div class="data-flow">
+                            <div class="flow-col">
+                                <span class="label" style="color: #0369a1; margin-top:0;">Entrada de Dados (Potencial)</span>
+                                <div class="content">${sys[kIn] || '-'}</div>
+                            </div>
+                            <div class="flow-col">
+                                <span class="label" style="color: #b45309; margin-top:0;">Saída de Dados (Potencial)</span>
+                                <div class="content">${sys[kOut] || '-'}</div>
+                            </div>
+                        </div>
+
+                        <div class="highlight-rndt">
+                            <span class="label" style="color: #047857; margin-top:0;">Relação Estratégica com a RNDT</span>
+                            <div class="content">${sys[kRel] || 'Informação não especificada no inventário.'}</div>
+                        </div>
+                    </div>`;
+                });
+            }
+            
+            htmlStr += `
+                    <div class="footer-disclaimer">
+                        <strong>AVISO LEGAL:</strong> Os dados apresentados neste relatório <u>não são informações oficiais do Governo Federal</u>. 
+                        Eles foram obtidos através de pesquisas públicas na internet e compilados exclusivamente para fins de estudo, simulação e visualização arquitetônica em painéis de governança.
+                    </div>
+                </div>
+            </body>
+            </html>`;
+
+            let blob = new Blob([htmlStr], {type: "text/html;charset=utf-8"});
+            let url = URL.createObjectURL(blob);
+            let a = document.createElement("a");
+            a.href = url;
+            a.download = `Relatorio_Potencial_RNDT_${safeId(orgao)}.html`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        // --- CORE PROCESSAMENTO E DESENHO ---
+        function processData() {
+            updateVisualization();
+        }
+
+        function updateVisualization() {
+            let inputVal = document.getElementById("filter-orgao").value.trim();
+            const filterOrg = (inputVal === "" || inputVal.toUpperCase() === "ALL") ? "ALL" : inputVal;
+            const routeDirection = document.getElementById("route-direction").value;
+
+            let h = Object.keys(rawData[0]);
+            let kSys = h.find(k => k.includes("Documento")) || "Documento/Sistema";
+            let kResp = h.find(k => k.includes("Responsável")) || "Responsável";
+            let kEsf = h.find(k => k.includes("Esfera")) || "Esfera";
+            let kIn = h.find(k => k.includes("Entrada")) || "Entrada de Dados";
+            let kOut = h.find(k => k.includes("Saída")) || "Saída de Dados";
+
+            let baseData = rawData;
+
+            if (filterOrg !== "ALL") {
+                let connectedSysNames = new Set();
+                let primarySysNames = new Set();
+                
+                rawData.forEach(d => {
+                    if (d[kResp] === filterOrg) {
+                        let sysName = (d[kSys] || "").toLowerCase().trim();
+                        primarySysNames.add(sysName);
+                        if (d[kOut]) d[kOut].split(",").forEach(s => connectedSysNames.add(s.toLowerCase().trim()));
+                        if (d[kIn]) d[kIn].split(",").forEach(s => connectedSysNames.add(s.toLowerCase().trim()));
+                    }
+                });
+
+                baseData = rawData.filter(d => {
+                    let sysName = (d[kSys] || "").toLowerCase().trim();
+                    let isPrimary = d[kResp] === filterOrg;
+                    let isDirectlyConnected = connectedSysNames.has(sysName);
+                    
+                    let pointsToPrimary = false;
+                    if (d[kOut]) d[kOut].split(",").forEach(s => { if (primarySysNames.has(s.toLowerCase().trim())) pointsToPrimary = true; });
+                    if (d[kIn]) d[kIn].split(",").forEach(s => { if (primarySysNames.has(s.toLowerCase().trim())) pointsToPrimary = true; });
+                    
+                    return isPrimary || isDirectlyConnected || pointsToPrimary;
+                });
+            }
+
+            let nodesMap = new Map();
+            let parentChildrenMap = new Map();
+
+            baseData.forEach(d => {
+                if(!d[kSys] || !d[kResp]) return;
+                let parentId = "IC_" + safeId(d[kResp]);
+                if (!nodesMap.has(parentId)) {
+                    nodesMap.set(parentId, { id: parentId, label: d[kResp], type: "parent", esfera: d[kEsf] });
+                    parentChildrenMap.set(parentId, []);
+                }
+                let sysId = "PIN_" + safeId(d[kSys]);
+                if (!nodesMap.has(sysId)) {
+                    let sysNode = { id: sysId, label: d[kSys], type: "system", parentId: parentId, data: d, esfera: d[kEsf] };
+                    nodesMap.set(sysId, sysNode);
+                    parentChildrenMap.get(parentId).push(sysNode);
+                }
+            });
+
+            let nodes = Array.from(nodesMap.values());
+            let links = [];
+
+            baseData.forEach(d => {
+                if(!d[kSys]) return;
+                let currentId = "PIN_" + safeId(d[kSys]);
+                
+                if ((routeDirection === "OUT" || routeDirection === "ALL") && d[kOut]) {
+                    d[kOut].split(",").map(s => s.trim()).forEach(outSys => {
+                        let targetId = "PIN_" + safeId(outSys);
+                        if (nodesMap.has(targetId) && targetId !== currentId) links.push({ source: currentId, target: targetId, direction: "OUT" });
+                    });
+                }
+                
+                if ((routeDirection === "IN" || routeDirection === "ALL") && d[kIn]) {
+                    d[kIn].split(",").map(s => s.trim()).forEach(inSys => {
+                        let sourceId = "PIN_" + safeId(inSys);
+                        if (nodesMap.has(sourceId) && sourceId !== currentId) links.push({ source: sourceId, target: currentId, direction: "IN" });
+                    });
+                }
+            });
+
+            fullGraphData.nodes = nodes;
+            fullGraphData.links = links;
+            fullGraphData.parentMap = parentChildrenMap;
+
+            buildCleanPCBLayout(nodes, links, parentChildrenMap, false);
+            centerCamera();
+        }
+
+        function buildCleanPCBLayout(nodes, links, parentChildrenMap, isIsolated = false) {
+            gChips.selectAll("*").remove(); gPins.selectAll("*").remove();
+            gTraces.selectAll("*").remove(); gActiveTraces.selectAll("*").remove();
+
+            let parentNodes = nodes.filter(n => n.type === "parent");
+            
+            parentNodes.forEach(p => {
+                let meta = parentMetaMap.get(p.id.replace("IC_", ""));
+                p.defaultColumn = meta ? meta.col : 0;
+                p.defaultOrder = meta ? meta.order : 0;
+                let children = parentChildrenMap.get(p.id) || [];
+                p.w = 230; 
+                p.h = Math.max(80, (children.length * 22) + 40);
+                p.theme = getThemeByEsfera(p.esfera);
+            });
+
+            let leftCol = parentNodes.filter(p => p.defaultColumn === 0).sort((a,b) => a.defaultOrder - b.defaultOrder);
+            let rightCol = parentNodes.filter(p => p.defaultColumn === 1).sort((a,b) => a.defaultOrder - b.defaultOrder);
+
+            let offset = isIsolated ? 400 : 700;
+
+            function layoutColumn(colNodes, xOffset) {
+                let totalHeight = colNodes.reduce((sum, p) => sum + p.h + 100, 0) - 100;
+                let currentY = boardCenter.y - (totalHeight / 2);
+                
+                colNodes.forEach(p => {
+                    p.x = boardCenter.x + xOffset;
+                    p.y = currentY + (p.h / 2);
+                    currentY += p.h + 100; 
+                    
+                    let children = parentChildrenMap.get(p.id) || [];
+                    let startY = p.y - (p.h/2) + 25;
+                    children.forEach((c, i) => {
+                        c.y = startY + (i * 22); c.isLeftOfCPU = p.x < boardCenter.x;
+                        c.x = c.isLeftOfCPU ? p.x + (p.w/2) : p.x - (p.w/2);
+                        c.theme = getThemeByEsfera(c.esfera);
+                    });
+                });
+            }
+
+            layoutColumn(leftCol, -offset);
+            layoutColumn(rightCol, offset);
+
+            links.forEach((l, i) => {
+                let sId = l.source.id || l.source; let tId = l.target.id || l.target;
+                l.sourceNode = nodes.find(n => n.id === sId); l.targetNode = nodes.find(n => n.id === tId);
+                l.channelOffsetA = (i % 35) * 8; l.channelOffsetB = ((i + 15) % 35) * 8; 
+            });
+
+            if(!isIsolated) {
+                gTraces.selectAll(".trace-cold").data(links.filter(l => l.sourceNode && l.targetNode))
+                    .enter().append("path").attr("class", "pcb-trace trace-cold").attr("d", d => generateRoutedPath(d));
+            }
+
+            let chipGroup = gChips.selectAll(".chip-group").data(parentNodes).enter().append("g").attr("class", "chip-group").attr("id", d => d.id).attr("transform", d => `translate(${d.x},${d.y})`);
+            
+            // Retângulo de Sombra/Profundidade
+            chipGroup.append("rect").attr("class", "chip-depth")
+                .attr("width", d => d.w).attr("height", d => d.h).attr("x", d => -(d.w/2) + 8).attr("y", d => -(d.h/2) + 8).attr("rx", 5);
+            
+            // Retângulo Base Escuro
+            chipGroup.append("rect").attr("class", "chip-base")
+                .attr("width", d => d.w).attr("height", d => d.h).attr("x", d => -(d.w/2)).attr("y", d => -(d.h/2)).attr("rx", 5);
+            
+            // Corpo Principal Colorido
+            chipGroup.append("rect").attr("class", "chip-body")
+                .attr("width", d => d.w).attr("height", d => d.h).attr("x", d => -(d.w/2)).attr("y", d => -(d.h/2)).attr("rx", 5)
+                .style("fill", d => d.theme.fill).style("stroke", d => d.theme.stroke)
+                .on("click", function(event, d) { if(event) stopDemo(); triggerRoutingSequence(event, d, true); });
+
+            chipGroup.append("text").attr("class", "silkscreen-text").style("fill", d => d.theme.text).attr("dy", d => -(d.h/2) + 20).attr("text-anchor", "middle").style("font-size", "14px")
+                .text(d => d.label.length > 25 ? d.label.substring(0,25) + ".." : d.label);
+
+            let pinGroup = gPins.selectAll(".pin").data(nodes.filter(n => n.type === "system")).enter().append("g").attr("transform", d => `translate(${d.x},${d.y})`);
+            pinGroup.append("rect").attr("class", "pin-pad").attr("width", 22).attr("height", 12).attr("x", d => d.isLeftOfCPU ? 0 : -22).attr("y", -6)
+                .style("fill", d => d.theme.pin).style("stroke", d => d.theme.stroke)
+                .on("mouseover", handleMouseOverPin).on("click", (e,d) => { if(e) stopDemo(); triggerRoutingSequence(e,d,false); });
+            pinGroup.append("text").attr("class", "pin-text").style("fill", d => d.theme.text).attr("dx", d => d.isLeftOfCPU ? -12 : 12).attr("dy", 4).attr("text-anchor", d => d.isLeftOfCPU ? "end" : "start")
+                .text(d => d.label.length > 28 ? d.label.substring(0,28) + ".." : d.label);
+        }
+
+        function generateRoutedPath(link) {
+            let A = link.sourceNode; let B = link.targetNode; let CPU = boardCenter;
+            if(!A || !B) return ""; 
+            let cpuPinA_Y = Math.max(CPU.y - cpuSize/2 + 10, Math.min(CPU.y + cpuSize/2 - 10, CPU.y + ((A.y - CPU.y) / 1500) * (cpuSize/2 - 20)));
+            let cpuPinB_Y = Math.max(CPU.y - cpuSize/2 + 10, Math.min(CPU.y + cpuSize/2 - 10, CPU.y + ((B.y - CPU.y) / 1500) * (cpuSize/2 - 20)));
+            let midX1 = A.isLeftOfCPU ? A.x + 80 + link.channelOffsetA : A.x - 80 - link.channelOffsetA; let cpuEdgeAX = A.isLeftOfCPU ? CPU.x - cpuSize/2 : CPU.x + cpuSize/2;
+            let midX2 = B.isLeftOfCPU ? B.x + 80 + link.channelOffsetB : B.x - 80 - link.channelOffsetB; let cpuEdgeBX = B.isLeftOfCPU ? CPU.x - cpuSize/2 : CPU.x + cpuSize/2;
+            return `M ${A.x},${A.y} H ${midX1} V ${cpuPinA_Y} H ${cpuEdgeAX} L ${cpuEdgeBX},${cpuPinB_Y} H ${midX2} V ${B.y} H ${B.x}`;
+        }
+
+        // --- SISTEMA DE DEMO ALEATÓRIO ---
+        let demoTimer = null;
+        function stopDemo() {
+            if (demoTimer) {
+                clearTimeout(demoTimer); demoTimer = null;
+                let btn = document.getElementById('btn-demo');
+                btn.innerText = "🎲 MODO DEMO AUTOMÁTICO";
+                btn.style.backgroundColor = "#8b5cf6";
+                window.isDemoModeActive = false;
+            }
+        }
+
+        document.getElementById('btn-demo').addEventListener('click', function() {
+            if (demoTimer) {
+                stopDemo(); stopAnimation();
+            } else {
+                this.innerText = "⏹ PARAR DEMO";
+                this.style.backgroundColor = "#d97706";
+                if(!audioInitialized) { initAudio(); audioInitialized = true; }
+                document.getElementById('toggle-cinematic').checked = true; 
+                window.isDemoModeActive = true;
+                runDemoCycle();
+            }
+        });
+
+        function runDemoCycle() {
+            if(!document.getElementById('btn-demo').innerText.includes("PARAR")) return;
+            let parents = fullGraphData.nodes.filter(n => n.type === "parent");
+            if(parents.length === 0) { demoTimer = setTimeout(runDemoCycle, 2000); return; }
+
+            let randomParent = parents[Math.floor(Math.random() * parents.length)];
+            // No modo demo contínuo, focar primariamente na Saída de Dados para facilitar a leitura visual Origem -> Destino
+            document.getElementById("route-direction").value = "OUT"; 
+            triggerRoutingSequence(null, randomParent, true);
+        }
+
+        function pulseCPU() {
+            let cpu = d3.select(".rndt-cpu");
+            cpu.classed("rndt-glow", true);
+            setTimeout(() => {
+                cpu.classed("rndt-glow", false);
+            }, 800);
+        }
+
+        // --- ISOLAMENTO DE CIRCUITO E ANIMAÇÃO ---
+        let animationQueue = []; let isPlaying = false;
+        document.getElementById("btn-play").addEventListener("click", () => { if (!isPlaying && animationQueue.length > 0) { isPlaying = true; playNextRouteInQueue(); } });
+        document.getElementById("btn-stop").addEventListener("click", stopAnimation);
+        document.getElementById("btn-next").addEventListener("click", () => { if(animationQueue.length > 0) { svg.interrupt("cam"); gActiveTraces.selectAll(".trace-hot").attr("class", "pcb-trace trace-settled").interrupt(); playNextRouteInQueue(); } });
+
+        function stopAnimation() { 
+            isPlaying = false; 
+            svg.interrupt("cam"); 
+            gActiveTraces.selectAll("*").interrupt(); 
+            // Limpa todos os tempos de espera suspensos se houver intervenção
+            if (window.demoTimeouts) {
+                window.demoTimeouts.forEach(t => clearTimeout(t));
+                window.demoTimeouts = [];
+            }
+        }
+        
+        function hideTooltip() { tooltip.style("opacity", 0); }
+        d3.select("body").on("click", (event) => { if (!event.target.closest(".pin-pad") && !event.target.closest("#tooltip")) hideTooltip(); });
+
+        function triggerRoutingSequence(event, d, isParent = false) {
+            hideTooltip(); stopAnimation();
+            const routeDirection = document.getElementById("route-direction").value;
+            let activeLinks = [];
+            let sourceSystems = [];
+
+            if(isParent) {
+                sourceSystems = fullGraphData.nodes.filter(n => n.parentId === d.id && n.type === "system");
+                if(routeDirection === "OUT" || routeDirection === "ALL") activeLinks.push(...fullGraphData.links.filter(l => sourceSystems.find(p => p.id === (l.source.id||l.source))));
+                if(routeDirection === "IN" || routeDirection === "ALL") activeLinks.push(...fullGraphData.links.filter(l => sourceSystems.find(p => p.id === (l.target.id||l.target))));
+            } else {
+                sourceSystems = [d];
+                if(routeDirection === "OUT" || routeDirection === "ALL") activeLinks.push(...fullGraphData.links.filter(l => (l.source.id||l.source) === d.id));
+                if(routeDirection === "IN" || routeDirection === "ALL") activeLinks.push(...fullGraphData.links.filter(l => (l.target.id||l.target) === d.id));
+            }
+            
+            activeLinks = Array.from(new Set(activeLinks));
+
+            document.getElementById("route-panel").style.display = "block";
+            
+            let treeContainer = document.getElementById("route-tree-container"); treeContainer.innerHTML = "";
+
+            if (activeLinks.length === 0) { 
+                let pNode = isParent ? d : fullGraphData.nodes.find(n => n.id === d.parentId);
+                document.getElementById("route-header").innerHTML = `<div class="tree-header-box"><div class="label-origem">SISTEMAS DE:</div><div class="tree-org">${pNode.label}</div></div>`;
+                treeContainer.innerHTML = `<div class='tree-group-title' style='color:#f43f5e;'>Nenhuma ligação mapeada nesta direção.</div>`; 
+                playBeep(300, 'triangle', 0.2); 
+                
+                let isoNodes = fullGraphData.nodes.filter(n => n.id === pNode.id || n.parentId === pNode.id);
+                let isoMap = new Map();
+                isoMap.set(pNode.id, fullGraphData.nodes.filter(n => n.parentId === pNode.id));
+                buildCleanPCBLayout(isoNodes, [], isoMap, true);
+                
+                frameNodes(isoNodes, 1200, () => {
+                    if (window.isDemoModeActive) {
+                        demoTimer = setTimeout(runDemoCycle, 2500);
+                    }
+                });
+                return; 
+            }
+
+            let involvedParentIds = new Set();
+            activeLinks.forEach(l => {
+                let sId = l.source.id||l.source; let tId = l.target.id||l.target;
+                let sNode = fullGraphData.nodes.find(n=>n.id===sId);
+                let tNode = fullGraphData.nodes.find(n=>n.id===tId);
+                if(sNode) involvedParentIds.add(sNode.parentId);
+                if(tNode) involvedParentIds.add(tNode.parentId);
+            });
+            involvedParentIds.add(isParent ? d.id : d.parentId);
+
+            let isoNodes = fullGraphData.nodes.filter(n => 
+                (n.type === "parent" && involvedParentIds.has(n.id)) ||
+                (n.type === "system" && involvedParentIds.has(n.parentId))
+            );
+            
+            window.currentIsoNodes = isoNodes;
+
+            let isoMap = new Map();
+            isoNodes.filter(n=>n.type==="parent").forEach(p => isoMap.set(p.id, []));
+            isoNodes.filter(n=>n.type==="system").forEach(s => isoMap.get(s.parentId).push(s));
+
+            buildCleanPCBLayout(isoNodes, activeLinks, isoMap, true);
+
+            let getActionText = (link, targetSys) => {
+                if((link.source.id||link.source) === targetSys.id) return "ENVIA DADOS PARA:";
+                return "RECEBE DADOS DE:";
+            };
+
+            if(isParent) {
+                document.getElementById("route-header").innerHTML = `<div class="tree-header-box"><div class="label-origem">ANÁLISE DE ROTAS DO ÓRGÃO:</div><div class="tree-org">${d.label}</div></div>`;
+                
+                sourceSystems.forEach(sys => {
+                    let sysLinks = activeLinks.filter(l => (l.source.id||l.source) === sys.id || (l.target.id||l.target) === sys.id);
+                    if(sysLinks.length > 0) {
+                        let sysGroup = document.createElement("div"); sysGroup.className = "tree-group";
+                        sysGroup.innerHTML = `<div class='tree-group-title'>[${sys.label}]</div>`;
+
+                        let groupedLinks = d3.group(sysLinks, l => (l.source.id||l.source) === sys.id ? l.targetNode.parentId : l.sourceNode.parentId);
+                        for (let [opParentId, linksList] of groupedLinks) {
+                            let opPNode = isoNodes.find(n => n.id === opParentId);
+                            let action = getActionText(linksList[0], sys);
+                            let subGroup = document.createElement("div");
+                            subGroup.innerHTML = `<div style="font-size:0.8rem; color:#cbd5e1; margin-top:10px; margin-left:10px; font-weight:bold;">➔ ${action} ${opPNode.label}</div>`;
+                            
+                            linksList.forEach(link => {
+                                let opNode = (link.source.id||link.source) === sys.id ? link.targetNode : link.sourceNode;
+                                let itemDiv = document.createElement("div"); itemDiv.className = "route-tree-item"; itemDiv.id = "tree-item-" + opNode.id;
+                                itemDiv.innerHTML = `<div class='tree-sys'>[${opNode.label}]</div><div class='tree-dim'>${opNode.data["Dimensão"] || ""}</div>`;
+                                itemDiv.onclick = () => { stopDemo(); replaySpecificRoute(link); }
+                                subGroup.appendChild(itemDiv);
+                            });
+                            sysGroup.appendChild(subGroup);
+                        }
+                        treeContainer.appendChild(sysGroup);
+                    }
+                });
+            } else {
+                let pNode = isoNodes.find(n => n.id === d.parentId);
+                document.getElementById("route-header").innerHTML = `<div class="tree-header-box"><div class="label-origem">SISTEMA FOCO:</div><div class="tree-org">${pNode.label}</div><div class="tree-sys">[${d.label}]</div><div class="tree-dim">${d.data["Dimensão"] || ""}</div></div>`;
+                
+                let groupedLinks = d3.group(activeLinks, l => (l.source.id||l.source) === d.id ? l.targetNode.parentId : l.sourceNode.parentId);
+                for (let [opParentId, linksList] of groupedLinks) {
+                    let opPNode = isoNodes.find(n => n.id === opParentId);
+                    let action = getActionText(linksList[0], d);
+                    let groupDiv = document.createElement("div"); groupDiv.className = "tree-group";
+                    groupDiv.innerHTML = `<div class='tree-group-title'>➔ ${action} ${opPNode.label}</div>`;
+                    
+                    linksList.forEach(link => {
+                        let opNode = (link.source.id||link.source) === d.id ? link.targetNode : link.sourceNode;
+                        let itemDiv = document.createElement("div"); itemDiv.className = "route-tree-item"; itemDiv.id = "tree-item-" + opNode.id;
+                        itemDiv.innerHTML = `<div class='tree-sys'>[${opNode.label}]</div><div class='tree-dim'>${opNode.data["Dimensão"] || ""}</div>`;
+                        itemDiv.onclick = () => { stopDemo(); replaySpecificRoute(link); }
+                        groupDiv.appendChild(itemDiv);
+                    });
+                    treeContainer.appendChild(groupDiv);
+                }
+            }
+
+            // Bifurcação: Demo Batch ou Interação Comum
+            if (window.isDemoModeActive && isParent) {
+                animateDemoBatch(d, activeLinks);
+            } else if (document.getElementById("toggle-cinematic").checked) { 
+                animationQueue = [...activeLinks]; isPlaying = true; playNextRouteInQueue(); 
+            } else {
+                drawAllSimultaneously(activeLinks);
+            }
+        }
+
+        // --- FUNÇÃO ESPECÍFICA DO MODO DEMO: Anima do Nó Responsável (Agrupado) até os Destinos
+        function animateDemoBatch(parentNode, links) {
+            d3.selectAll(".route-tree-item").classed("active", true);
+            window.demoTimeouts = [];
+            
+            // 1. Zoom amplo focando no Órgão (Parent Node)
+            let sourceNodesToFrame = window.currentIsoNodes.filter(n => n.id === parentNode.id || n.parentId === parentNode.id);
+            frameNodes(sourceNodesToFrame, 1200, () => {
+                playBeep(880, 'sine', 0.1, 0.05); 
+                
+                // 2. Aguarda 2.5 Segundos na Origem (Tempo de Leitura)
+                window.demoTimeouts.push(setTimeout(() => {
+                    let animDuration = 2500;
+                    
+                    // Dispara todos os feixes de uma vez deste Órgão
+                    links.forEach((link) => {
+                        const trace = gActiveTraces.append("path").attr("class", "pcb-trace trace-hot").attr("d", generateRoutedPath(link));
+                        const totalLength = trace.node().getTotalLength();
+                        trace.attr("stroke-dasharray", totalLength + " " + totalLength).attr("stroke-dashoffset", totalLength)
+                             .transition("draw").duration(animDuration).ease(d3.easeLinear).attr("stroke-dashoffset", 0);
+                    });
+
+                    // Metade do Caminho: Pulsa a CPU sutilmente
+                    window.demoTimeouts.push(setTimeout(() => {
+                        pulseCPU();
+                        playChord([220, 277, 330], 0.6, 0.05);
+                    }, animDuration / 2));
+
+                    // 3. Ao fim da linha, Pan Automático para os Destinos
+                    window.demoTimeouts.push(setTimeout(() => {
+                        playBeep(1200, 'sine', 0.2, 0.05);
+                        
+                        let targetParentIds = new Set();
+                        links.forEach(l => {
+                            let opParentId = (l.sourceNode.parentId === parentNode.id) ? l.targetNode.parentId : l.sourceNode.parentId;
+                            targetParentIds.add(opParentId);
+                        });
+                        
+                        let targetNodesToFrame = window.currentIsoNodes.filter(n => targetParentIds.has(n.id) || targetParentIds.has(n.parentId));
+                        
+                        frameNodes(targetNodesToFrame, 1500, () => {
+                            // 4. Aguarda 2.5 Segundos no Destino (Tempo de Leitura)
+                            window.demoTimeouts.push(setTimeout(() => {
+                                frameNodes(window.currentIsoNodes, 1200, () => {
+                                    if (window.isDemoModeActive) {
+                                        // Segue em frente para a próxima simulação
+                                        demoTimer = setTimeout(runDemoCycle, 1500);
+                                    }
+                                });
+                            }, 2500));
+                        });
+                    }, animDuration));
+
+                }, 2500));
+            });
+        }
+
+        // Câmera Individual (Modo Manual)
+        function playNextRouteInQueue() {
+            if (!isPlaying || animationQueue.length === 0) { isPlaying = false; return; }
+            gActiveTraces.selectAll(".trace-hot").attr("class", "pcb-trace trace-settled").interrupt();
+            animateSingleLink(animationQueue.shift(), true);
+        }
+
+        function replaySpecificRoute(link) {
+            stopAnimation(); gActiveTraces.selectAll(".trace-hot").attr("class", "pcb-trace trace-settled").interrupt();
+            animateSingleLink(link, document.getElementById("toggle-cinematic").checked);
+        }
+
+        function animateSingleLink(link, useCamera) {
+            let A = link.sourceNode; let B = link.targetNode;
+            
+            d3.selectAll(".route-tree-item").classed("active", false); 
+            d3.select("#tree-item-" + A.id).classed("active", true);
+            d3.select("#tree-item-" + B.id).classed("active", true);
+
+            const trace = gActiveTraces.append("path").attr("class", "pcb-trace trace-hot").attr("d", generateRoutedPath(link));
+            const totalLength = trace.node().getTotalLength();
+            
+            if (useCamera) {
+                svg.transition("cam").duration(1000).ease(d3.easeCubicInOut)
+                   .call(zoom.transform, d3.zoomIdentity.translate(width/2 - A.x*1.8, height/2 - A.y*1.8).scale(1.8))
+                   .on("end", () => {
+                       playBeep(880, 'sine', 0.1, 0.05); 
+                       
+                       let animDuration = 2000;
+                       trace.attr("stroke-dasharray", totalLength + " " + totalLength).attr("stroke-dashoffset", totalLength)
+                            .transition("draw").duration(animDuration).ease(d3.easeLinear).attr("stroke-dashoffset", 0);
+
+                       setTimeout(() => { pulseCPU(); playChord([220, 277, 330], 0.6, 0.05); }, animDuration / 2);
+
+                       svg.transition("cam").duration(animDuration).ease(d3.easeCubicInOut)
+                          .call(zoom.transform, d3.zoomIdentity.translate(width/2 - B.x*1.8, height/2 - B.y*1.8).scale(1.8))
+                          .on("end", () => {
+                              playBeep(1200, 'sine', 0.2, 0.05);
+                              
+                              setTimeout(() => {
+                                  if (animationQueue.length > 0) {
+                                      if(isPlaying) playNextRouteInQueue();
+                                  } else {
+                                      frameNodes(window.currentIsoNodes, 1200);
+                                  }
+                              }, 1500);
+                          });
+                   });
+            } else {
+                playBeep(880, 'sine', 0.1, 0.05);
+                trace.attr("stroke-dasharray", totalLength + " " + totalLength).attr("stroke-dashoffset", totalLength)
+                     .transition("draw").duration(1500).ease(d3.easeLinear).attr("stroke-dashoffset", 0)
+                     .on("start", () => setTimeout(() => { pulseCPU(); playChord([220, 277, 330], 0.6, 0.05); }, 750))
+                     .on("end", () => playBeep(1200, 'sine', 0.2, 0.05));
+            }
+        }
+
+        function drawAllSimultaneously(links) {
+            playBeep(880, 'sine', 0.1, 0.08);
+
+            links.forEach((link, i) => {
+                const trace = gActiveTraces.append("path").attr("class", "pcb-trace trace-hot").attr("d", generateRoutedPath(link));
+                const totalLength = trace.node().getTotalLength();
+                
+                trace.attr("stroke-dasharray", totalLength + " " + totalLength).attr("stroke-dashoffset", totalLength)
+                     .transition("draw").duration(1800).ease(d3.easeLinear).attr("stroke-dashoffset", 0)
+                     .on("start", () => { if(i===0) setTimeout(() => { pulseCPU(); playChord([220, 277, 330], 0.6, 0.05); }, 900); })
+                     .on("end", () => { if(i===0) playBeep(1200, 'sine', 0.2, 0.05); setTimeout(() => trace.attr("class", "pcb-trace trace-settled"), 500); });
+            });
+            
+            frameNodes(window.currentIsoNodes, 1200);
+        }
+
+        function handleMouseOverPin(event, d) {
+            let posX = event.pageX + 25; let posY = event.pageY - 25;
+            let dr = d.data; let h = Object.keys(dr);
+            
+            let kSys = h.find(k => k.includes("Documento")) || "Documento/Sistema"; 
+            let kDim = h.find(k => k.includes("Dimensão")) || "Dimensão";
+            let kResp = h.find(k => k.includes("Responsável")) || "Responsável"; 
+            let kDesc = h.find(k => k.includes("Descrição")) || "Descrição";
+            let kRel = h.find(k => k.includes("Relação")) || "Relação com Rede Nacional de Dados de Transporte";
+            
+            let extraFieldsHtml = "";
+            let excludedKeys = [kSys, kDim, kResp, kDesc, kRel, "Entrada de Dados", "Saída de Dados", "Esfera", "Consta no ATLAS-BR", "Link do Sistema"];
+            h.forEach(key => {
+                if(!excludedKeys.includes(key) && dr[key]) {
+                    extraFieldsHtml += `<p>> <strong style="color:#fcd34d;">${key.toUpperCase()}:</strong> ${dr[key]}</p>`;
+                }
+            });
+
+            tooltip.style("opacity", 1).style("left", posX + "px").style("top", posY + "px").html(`
+                <h3>[ID] ${dr[kSys]}</h3>
+                <p>> <strong>HOST:</strong> ${dr[kResp]}</p>
+                <p>> <strong>SETOR:</strong> ${dr[kDim]}</p>
+                <p>> <strong>DESC:</strong> ${dr[kDesc] || "N/A"}</p>
+                ${extraFieldsHtml}
+                <div style="margin-top: 10px; padding: 10px; background: rgba(5, 150, 105, 0.15); border-left: 3px solid #10b981; border-radius: 0 4px 4px 0;">
+                    <strong style="color: #34d399;">RELAÇÃO RNDT:</strong><br>
+                    <span style="font-size: 0.8rem; color: #a7f3d0; display: block; margin-top: 4px;">${dr[kRel] || "Não informada no escopo."}</span>
+                </div>
+            `);
+        }
+        
+    </script>
+</body>
+</html>
