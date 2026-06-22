@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel RNDT - IDS RAM (Light Theme)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            /* Light Theme Palette */
+            --bg-base: #f0f4f8;
+            --bg-panel: rgba(255, 255, 255, 0.9);
+            --border-light: rgba(0, 0, 0, 0.08);
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            
+            /* Node Colors */
+            --c-provider: #2563eb; /* Azul Royal */
+            --c-consumer: #059669; /* Verde Esmeralda */
+            --c-daps: #9333ea;     /* Roxo */
+            --c-broker: #0891b2;   /* Ciano Escuro */
+            --c-clearing: #ea580c; /* Laranja Escuro */
+            --c-legacy: #475569;   /* Cinza Metálico */
+            
+            --shadow-soft: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+            --shadow-float: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-base);
+            color: var(--text-main);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header Executivo */
+        header {
+            padding: 20px 40px;
+            background: #ffffff;
+            border-bottom: 1px solid var(--border-light);
+            display: flex; justify-content: space-between; align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+            z-index: 10;
+        }
+
+        header h1 { font-weight: 800; font-size: 1.6rem; color: #0f172a; letter-spacing: -0.5px; }
+        header p { color: var(--text-muted); font-size: 0.9rem; margin-top: 4px; }
+        
+        .header-actions { display: flex; gap: 15px; align-items: center; }
+        .instruction-badge {
+            background: #eff6ff; color: #1d4ed8; padding: 8px 16px; border-radius: 8px;
+            font-size: 0.85rem; font-weight: 600; border: 1px solid #bfdbfe;
+            animation: pulse-soft 2s infinite;
+        }
+
+        @keyframes pulse-soft {
+            0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.2); }
+            70% { box-shadow: 0 0 0 6px rgba(37, 99, 235, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+        }
+
+        /* Layout Container */
+        .container { display: flex; flex: 1; padding: 25px; gap: 25px; height: calc(100vh - 85px); }
+
+        /* Mapa Topológico (Esquerda) */
+        .network-map {
+            flex: 2.5; position: relative; background: #ffffff;
+            border: 1px solid var(--border-light); border-radius: 20px;
+            box-shadow: var(--shadow-soft); overflow: hidden;
+            /* Grid Background (Light) */
+            background-image: 
+                linear-gradient(rgba(0,0,0,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,0,0,0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+
+        /* Zona de Confiança Compartilhada */
+        .shared-zone {
+            position: absolute; top: 5%; left: 40%; width: 20%; height: 90%;
+            background: rgba(248, 250, 252, 0.8);
+            border: 2px dashed #cbd5e1; border-radius: 40px;
+            z-index: 0; pointer-events: none; display: flex; justify-content: center;
+        }
+        .shared-zone::before {
+            content: "INFRAESTRUTURA RNDT"; position: absolute; top: 20px;
+            font-size: 0.7rem; color: #94a3b8; font-weight: 800; letter-spacing: 1.5px;
+        }
+
+        /* SVG Connectors */
+        svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+        .line { stroke: #cbd5e1; stroke-width: 2.5; transition: all 0.4s ease; stroke-linecap: round; }
+        .line.active { stroke-width: 4; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1)); }
+        .line.dashed { stroke-dasharray: 8 8; animation: flowDash 1.5s linear infinite; } 
+        @keyframes flowDash { 0% { stroke-dashoffset: 32; } 100% { stroke-dashoffset: 0; } }
+
+        /* Estilo dos Nós (Cards Claros) */
+        .node {
+            position: absolute; width: 150px; padding: 20px 15px;
+            background: #ffffff; border-radius: 16px; text-align: center; cursor: pointer; z-index: 2;
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            transform: translate(-50%, -50%);
+            border: 1px solid var(--border-light);
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+            border-top: 5px solid; 
+        }
+
+        .node:hover { transform: translate(-50%, -53%); box-shadow: var(--shadow-float); }
+        .node i { font-size: 2.2rem; margin-bottom: 15px; transition: transform 0.3s; }
+        .node:hover i { transform: scale(1.1); }
+        .node h3 { font-size: 0.95rem; font-weight: 700; color: #334155; margin-bottom: 5px; }
+        .node span { font-size: 0.75rem; color: #64748b; display: block; background: #f1f5f9; padding: 4px; border-radius: 6px; }
+
+        /* Posições e Cores */
+        #node-provider { top: 60%; left: 20%; border-top-color: var(--c-provider); }
+        #node-provider i { color: var(--c-provider); }
+        
+        #node-consumer { top: 60%; left: 80%; border-top-color: var(--c-consumer); }
+        #node-consumer i { color: var(--c-consumer); }
+
+        #node-daps     { top: 22%; left: 50%; border-top-color: var(--c-daps); border-radius: 50%; width: 130px; height: 130px; display: flex; flex-direction: column; justify-content: center; padding: 10px; }
+        #node-daps i { color: var(--c-daps); margin-bottom: 5px; }
+        
+        #node-broker   { top: 52%; left: 50%; border-top-color: var(--c-broker); border-radius: 50%; width: 130px; height: 130px; display: flex; flex-direction: column; justify-content: center; padding: 10px;}
+        #node-broker i { color: var(--c-broker); margin-bottom: 5px; }
+        
+        #node-clearing { top: 82%; left: 50%; border-top-color: var(--c-clearing); border-radius: 50%; width: 130px; height: 130px; display: flex; flex-direction: column; justify-content: center; padding: 10px;}
+        #node-clearing i { color: var(--c-clearing); margin-bottom: 5px; }
+
+        /* Banco Legado */
+        #node-legacy {
+            top: 60%; left: 6%; border-top: none; background: transparent; box-shadow: none; width: 100px;
+        }
+        #node-legacy i { color: var(--c-legacy); font-size: 2.5rem; opacity: 0.8; }
+        #node-legacy h3 { color: var(--c-legacy); font-size: 0.8rem; }
+
+        /* Estado Ativo do Nó (Pulso) */
+        .node.active-node {
+            border-color: currentColor; 
+            box-shadow: 0 0 0 4px rgba(0,0,0,0.05), var(--shadow-float);
+            transform: translate(-50%, -55%);
+        }
+        
+        @keyframes pulse-ring {
+            0% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(0,0,0,0.1); }
+            70% { transform: translate(-50%, -50%) scale(1.02); box-shadow: 0 0 0 15px rgba(0,0,0,0); }
+            100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(0,0,0,0); }
+        }
+        .node.pulsing { animation: pulse-ring 2s infinite; } 
+
+        /* Partícula Animada */
+        .particle {
+            position: absolute; width: 12px; height: 12px; border-radius: 50%;
+            background: #fff; transform: translate(-50%, -50%); opacity: 0; z-index: 5; pointer-events: none;
+        }
+
+        /* Painel Lateral (Direita) */
+        .side-panel {
+            flex: 1.2; min-width: 400px; display: flex; flex-direction: column; gap: 20px;
+            overflow-y: auto; padding-right: 5px;
+        }
+
+        /* Card de Informação Dinâmica */
+        .info-card {
+            background: #ffffff; border: 1px solid var(--border-light); border-radius: 16px;
+            padding: 25px; box-shadow: var(--shadow-soft); transition: all 0.3s ease;
+        }
+
+        .panel-header {
+            display: flex; align-items: center; gap: 15px; margin-bottom: 15px;
+            padding-bottom: 15px; border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .panel-icon {
+            width: 50px; height: 50px; border-radius: 12px; display: flex; align-items: center; justify-content: center;
+            font-size: 1.5rem; background: #f8fafc;
+        }
+
+        .panel-title h2 { font-size: 1.2rem; font-weight: 800; color: #0f172a; margin-bottom: 4px; }
+        .panel-badge { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; font-weight: 600; padding: 3px 8px; border-radius: 4px; display: inline-block; }
+
+        .panel-desc { font-size: 0.95rem; line-height: 1.6; color: #475569; }
+        .panel-desc b { color: #0f172a; }
+
+        /* Lista de Passos Dinâmica */
+        .step-container { margin-top: 25px; display: none; }
+        .step-container.visible { display: block; animation: slideUp 0.4s ease; }
+
+        @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .step-header { font-size: 0.9rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 15px; }
+
+        .step-list { display: flex; flex-direction: column; gap: 12px; }
+        .step-item {
+            padding: 15px; border-radius: 10px; background: #f8fafc; border: 1px solid transparent;
+            font-size: 0.9rem; color: #64748b; transition: all 0.3s ease;
+            display: flex; gap: 15px; align-items: flex-start;
+        }
+        .step-number {
+            background: #e2e8f0; color: #64748b; width: 24px; height: 24px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.8rem; flex-shrink: 0;
+        }
+        
+        /* Estado Ativo do Passo */
+        .step-item.active {
+            background: #ffffff; box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            transform: translateX(5px); color: #1e293b;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div>
+            <h1>Arquitetura RNDT (IDS RAM)</h1>
+            <p>Integração Soberana de Transportes</p>
+        </div>
+        <div class="header-actions">
+            <div class="instruction-badge" id="global-instruction">
+                <i class="fas fa-hand-pointer"></i> Clique num ator para iniciar seu fluxo
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="network-map">
+            <div class="shared-zone"></div>
+            <svg id="lines-svg"></svg>
+            <div id="particle" class="particle"></div>
+
+            <div class="node" id="node-legacy">
+                <i class="fas fa-server"></i>
+                <h3>RENAEST</h3>
+            </div>
+
+            <div class="node" id="node-provider" onclick="executeFlow('provider')">
+                <i class="fas fa-database"></i>
+                <h3>Provedor</h3>
+                <span>PRF/DNIT</span>
+            </div>
+
+            <div class="node" id="node-consumer" onclick="executeFlow('consumer')">
+                <i class="fas fa-laptop-code"></i>
+                <h3>Consumidor</h3>
+                <span>Ministério/CCR</span>
+            </div>
+
+            <div class="node" id="node-daps" onclick="showStaticInfo('daps')">
+                <i class="fas fa-id-card-clip"></i>
+                <h3>Gestor ID</h3>
+            </div>
+
+            <div class="node" id="node-broker" onclick="executeFlow('broker')">
+                <i class="fas fa-search"></i>
+                <h3>Catálogo</h3>
+            </div>
+
+            <div class="node" id="node-clearing" onclick="showStaticInfo('clearing')">
+                <i class="fas fa-file-signature"></i>
+                <h3>Auditoria</h3>
+            </div>
+        </div>
+
+        <div class="side-panel">
+            <div class="info-card" id="main-panel">
+                <div style="text-align: center; padding: 40px 20px; color: #64748b;">
+                    <i class="fas fa-network-wired" style="font-size: 3rem; margin-bottom: 20px; opacity: 0.5;"></i>
+                    <h2 style="color: #1e293b; margin-bottom: 10px;">Aguardando Interação</h2>
+                    <p>Selecione um componente ativo na malha (Provedor, Catálogo ou Consumidor) para visualizar sua operação técnica e simular o tráfego de dados na rede.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const coords = {
+            'legacy': {x: 6, y: 60}, 'provider': {x: 20, y: 60}, 'consumer': {x: 80, y: 60},
+            'daps': {x: 50, y: 22}, 'broker': {x: 50, y: 52}, 'clearing': {x: 50, y: 82}
+        };
+
+        const nodesData = {
+            'provider': {
+                title: 'Provedor (DNIT/PRF)', color: 'var(--c-provider)', icon: 'fa-database',
+                badge: 'EDC + Apache Camel', badgeBg: '#dbeafe', badgeColor: '#1d4ed8',
+                desc: 'A fonte da verdade. O <b>Apache Camel</b> opera como Camada Anti-Corrupção, extraindo as bases (ex: RENAEST) e mapeando o esquema para o padrão <b>DATEX II</b>. O conector EDC assegura que o acesso atenda às restrições ODRL (tempo e finalidade).'
+            },
+            'consumer': {
+                title: 'Consumidor (Ministério)', color: 'var(--c-consumer)', icon: 'fa-laptop-code',
+                badge: 'EDC + Superset/BI', badgeBg: '#d1fae5', badgeColor: '#047857',
+                desc: 'O motor de inteligência. O conector negocia e consome dados autorizados para alimentar painéis de BI e tomada de decisão. (A capacidade avançada de enviar <b>Data Apps</b> para processamento local na origem está mapeada para a Fase pós-MVP).'
+            },
+            'broker': {
+                title: 'Metadata Broker (CKAN)', color: 'var(--c-broker)', icon: 'fa-search',
+                badge: 'CKAN + mobilityDCAT-ap', badgeBg: '#cffafe', badgeColor: '#0e7490',
+                desc: 'A vitrine tecnológica. Agrupa os catálogos dos órgãos através de varreduras (Harvesting) baseadas em grafos semânticos. Permite que o Consumidor descubra dados sem impactar os bancos de produção do Provedor.'
+            },
+            'daps': {
+                title: 'Gestor de Identidade', color: 'var(--c-daps)', icon: 'fa-id-card-clip',
+                badge: 'Keycloak + ICP-Brasil', badgeBg: '#f3e8ff', badgeColor: '#7e22ce',
+                desc: 'Como o MVP prescinde de DIDs, o DAPS intercepta certificados X.509 da <b>ICP-Brasil</b>. Valida a cadeia jurídica do CNPJ e emite os Tokens JWT que atestam a confiabilidade daquele nó no Data Space.'
+            },
+            'clearing': {
+                title: 'Clearing House', color: 'var(--c-clearing)', icon: 'fa-file-signature',
+                badge: 'Fraunhofer IDS', badgeBg: '#ffedd5', badgeColor: '#c2410c',
+                desc: 'O notário digital distribuído. Grava o hash da transação sempre que uma carga de dados é entregue com sucesso na Fase 4. Impede que o Consumidor alegue que "não recebeu" o dado, garantindo o não-repúdio (SLA).'
+            }
+        };
+
+        const flows = {
+            'provider': {
+                titleText: "Executando: Pipeline de Ingestão e Publicação",
+                color: 'var(--c-provider)',
+                steps: [
+                    { id: 'p1', title: 'Camada Anti-Corrupção (Fase 1)', text: 'O Apache Camel puxa os dados legados do RENAEST e os mapeia para os esquemas em XML do DATEX II.' },
+                    { id: 'p2', title: 'Autenticação Institucional', text: 'O conector EDC da PRF apresenta seu e-CNPJ ao Keycloak e obtém um Token JWT válido para operar.' },
+                    { id: 'p3', title: 'Publicação de Contrato', text: 'O ativo convertido é publicado no Data Plane local, protegido por uma política de controle de uso (OPA).' }
+                ],
+                sequence: [
+                    { from: 'legacy', to: 'provider', line: 'l-leg-prov' },
+                    { from: 'provider', to: 'daps', line: 'l-prov-daps' },
+                    { from: 'provider', to: 'provider', selfAction: true } 
+                ]
+            },
+            'broker': {
+                titleText: "Executando: Colheita Semântica (Harvesting)",
+                color: 'var(--c-broker)',
+                steps: [
+                    { id: 'b1', title: 'Autorização de Colheita', text: 'O robô do CKAN se autentica no Keycloak e recebe a credencial oficial com o papel de "Broker".' },
+                    { id: 'b2', title: 'Requisição de Catálogo (Fase 2)', text: 'O Broker bate no endpoint público do Provedor apresentando o Token de segurança.' },
+                    { id: 'b3', title: 'Indexação (mobilityDCAT-ap)', text: 'O Provedor libera a leitura. O CKAN extrai as descrições e atualiza o motor de busca (Apache Solr).' }
+                ],
+                sequence: [
+                    { from: 'broker', to: 'daps', line: 'l-brok-daps' },
+                    { from: 'broker', to: 'provider', line: 'l-brok-prov' },
+                    { from: 'broker', to: 'provider', line: 'l-brok-prov', reverse: true }
+                ]
+            },
+            'consumer': {
+                titleText: "Executando: Negociação e Consumo de Dados",
+                color: 'var(--c-consumer)',
+                steps: [
+                    { id: 'c1', title: 'Obtenção de Credencial', text: 'O Ministério se autentica via mTLS no Keycloak para provar sua permissão governamental.' },
+                    { id: 'c2', title: 'Busca Unificada', text: 'Pesquisa no CKAN pelo ativo de "Sinistros", descobrindo o endereço exato do conector da PRF.' },
+                    { id: 'c3', title: 'Negociação ODRL (Fase 3)', text: 'Os conectores fecham contrato automático baseado no perfil. A PRF assina a liberação digitalmente.' },
+                    { id: 'c4', title: 'Transferência de Dados (Fase 4)', text: 'O Data Plane da PRF estabelece um canal mTLS e transmite os dados estruturados de forma segura para o banco de ingestão do Consumidor.' },
+                    { id: 'c5', title: 'Registro (Não-Repúdio)', text: 'Ambos os conectores registram a assinatura do recibo na Clearing House para fins de auditoria.' }
+                ],
+                sequence: [
+                    { from: 'consumer', to: 'daps', line: 'l-cons-daps' },
+                    { from: 'consumer', to: 'broker', line: 'l-cons-brok' },
+                    { from: 'consumer', to: 'provider', line: 'l-cons-prov' },
+                    { from: 'consumer', to: 'provider', line: 'l-cons-prov', reverse: true }, 
+                    { from: 'provider', to: 'clearing', line: 'l-prov-clear', parallel: { from: 'consumer', to: 'clearing', line: 'l-cons-clear' } }
+                ]
+            }
+        };
+
+        function drawLines() {
+            const svg = document.getElementById('lines-svg');
+            svg.innerHTML = ''; 
+            
+            const connections = [
+                { id: 'l-leg-prov', c1: 'legacy', c2: 'provider' },
+                { id: 'l-prov-daps', c1: 'provider', c2: 'daps' },
+                { id: 'l-cons-daps', c1: 'consumer', c2: 'daps' },
+                { id: 'l-brok-daps', c1: 'broker', c2: 'daps' },
+                { id: 'l-brok-prov', c1: 'broker', c2: 'provider' },
+                { id: 'l-cons-brok', c1: 'consumer', c2: 'broker' },
+                { id: 'l-cons-prov', c1: 'consumer', c2: 'provider' }, 
+                { id: 'l-prov-clear', c1: 'provider', c2: 'clearing' },
+                { id: 'l-cons-clear', c1: 'consumer', c2: 'clearing' }
+            ];
+
+            connections.forEach(conn => {
+                const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                line.setAttribute("x1", coords[conn.c1].x + '%'); line.setAttribute("y1", coords[conn.c1].y + '%');
+                line.setAttribute("x2", coords[conn.c2].x + '%'); line.setAttribute("y2", coords[conn.c2].y + '%');
+                line.setAttribute("id", conn.id); line.setAttribute("class", "line");
+                svg.appendChild(line);
+            });
+        }
+        window.onload = drawLines; window.onresize = drawLines;
+
+        let isSimulating = false;
+
+        function showStaticInfo(nodeId) {
+            if(isSimulating) return; 
+            resetVisuals();
+            document.getElementById('node-' + nodeId).classList.add('active-node');
+            document.getElementById('global-instruction').innerHTML = `<i class="fas fa-info-circle"></i> Inspecionando componente de governança`;
+            
+            renderPanel(nodeId, "Componente de Infraestrutura Passivo");
+            document.getElementById('step-container').classList.remove('visible');
+        }
+
+        async function executeFlow(nodeId) {
+            if(isSimulating) return;
+            isSimulating = true;
+            resetVisuals();
+            
+            const flowData = flows[nodeId];
+            
+            document.getElementById('node-' + nodeId).classList.add('active-node');
+            document.getElementById('global-instruction').innerHTML = `<i class="fas fa-spinner fa-spin"></i> Simulando operações na rede...`;
+            
+            renderPanel(nodeId, flowData.titleText);
+            
+            const stepContainer = document.getElementById('step-container');
+            const stepList = document.getElementById('step-list');
+            stepList.innerHTML = '';
+            
+            flowData.steps.forEach((step, index) => {
+                const div = document.createElement('div');
+                div.className = 'step-item';
+                div.id = `step-${step.id}`;
+                div.innerHTML = `
+                    <div class="step-number">${index + 1}</div>
+                    <div>
+                        <div style="font-weight:700; margin-bottom:4px; color:#1e293b;">${step.title}</div>
+                        <div>${step.text}</div>
+                    </div>`;
+                stepList.appendChild(div);
+            });
+            
+            stepContainer.classList.add('visible');
+
+            const seq = flowData.sequence;
+            for (let i = 0; i < seq.length; i++) {
+                const action = seq[i];
+                const stepId = flowData.steps[i].id;
+                
+                document.querySelectorAll('.step-item').forEach(s => {
+                    s.classList.remove('active');
+                    s.style.borderColor = 'transparent';
+                });
+                const activeStep = document.getElementById(`step-${stepId}`);
+                activeStep.classList.add('active');
+                activeStep.style.borderColor = flowData.color;
+
+                document.querySelectorAll('.node').forEach(n => n.classList.remove('pulsing'));
+                if(!action.selfAction) {
+                    if(action.from !== 'legacy') document.getElementById(`node-${action.from}`).classList.add('pulsing');
+                    document.getElementById(`node-${action.to}`).classList.add('pulsing');
+                } else {
+                    document.getElementById(`node-${action.from}`).classList.add('pulsing');
+                }
+
+                if(action.selfAction) {
+                    await sleep(2500); 
+                } else {
+                    const line = document.getElementById(action.line);
+                    line.classList.add('active'); line.classList.add('dashed');
+                    line.style.stroke = flowData.color;
+
+                    const startC = action.reverse ? coords[action.to] : coords[action.from];
+                    const endC = action.reverse ? coords[action.from] : coords[action.to];
+
+                    if(action.parallel) {
+                        const l2 = document.getElementById(action.parallel.line);
+                        l2.classList.add('active'); l2.classList.add('dashed'); l2.style.stroke = flowData.color;
+                        document.getElementById(`node-${action.parallel.from}`).classList.add('pulsing');
+                        
+                        await Promise.all([
+                            animateParticle(startC, endC, flowData.color),
+                            animateParticle(coords[action.parallel.from], coords[action.parallel.to], flowData.color, 'particle-2')
+                        ]);
+                    } else {
+                        await animateParticle(startC, endC, flowData.color);
+                    }
+                    
+                    await sleep(800); 
+
+                    line.classList.remove('active'); line.classList.remove('dashed');
+                    line.style.stroke = '#cbd5e1';
+                    if(action.parallel) {
+                        const l2 = document.getElementById(action.parallel.line);
+                        l2.classList.remove('active'); l2.classList.remove('dashed'); l2.style.stroke = '#cbd5e1';
+                    }
+                }
+            }
+
+            await sleep(1000);
+            document.querySelectorAll('.node').forEach(n => n.classList.remove('pulsing'));
+            document.getElementById('global-instruction').innerHTML = `<i class="fas fa-check-circle"></i> Simulação concluída. Selecione outro ator.`;
+            isSimulating = false;
+        }
+
+        function renderPanel(nodeId, overlineText) {
+            const data = nodesData[nodeId];
+            const html = `
+                <div class="panel-header">
+                    <div class="panel-icon" style="color: ${data.color}; background: ${data.badgeBg}"><i class="fas ${data.icon}"></i></div>
+                    <div class="panel-title">
+                        <div style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">${overlineText}</div>
+                        <h2>${data.title}</h2>
+                        <span class="panel-badge" style="background: ${data.badgeBg}; color: ${data.badgeColor}; border: 1px solid ${data.color}30;">
+                            <i class="fas fa-cube"></i> ${data.badge}
+                        </span>
+                    </div>
+                </div>
+                <div class="panel-desc">${data.desc}</div>
+                <div class="step-container" id="step-container">
+                    <div class="step-header">Trajeto de Dados na Rede</div>
+                    <div class="step-list" id="step-list"></div>
+                </div>
+            `;
+            document.getElementById('main-panel').innerHTML = html;
+        }
+
+        function resetVisuals() {
+            document.querySelectorAll('.node').forEach(n => { n.classList.remove('active-node'); n.classList.remove('pulsing'); });
+            document.querySelectorAll('.line').forEach(l => { l.classList.remove('active'); l.classList.remove('dashed'); l.style.stroke = '#cbd5e1'; });
+        }
+
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+        function animateParticle(start, end, color, extraClass = '') {
+            return new Promise(resolve => {
+                const p = document.createElement('div');
+                p.className = 'particle ' + extraClass;
+                p.style.background = color;
+                p.style.boxShadow = `0 0 15px 4px ${color}80`;
+                document.querySelector('.network-map').appendChild(p);
+                
+                p.style.opacity = '1';
+                
+                p.animate([
+                    { left: start.x + '%', top: start.y + '%' },
+                    { left: end.x + '%', top: end.y + '%' }
+                ], { duration: 2500, easing: 'ease-in-out' }).onfinish = () => {
+                    p.style.opacity = '0';
+                    setTimeout(() => { p.remove(); resolve(); }, 400); 
+                };
+            });
+        }
+    </script>
+</body>
+</html>
